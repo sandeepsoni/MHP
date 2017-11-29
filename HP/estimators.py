@@ -5,6 +5,7 @@ HP is a stochastic generative process for events in continuous time.
 from __future__ import division
 import numpy as np
 import scipy.sparse as sp
+from scipy.optimize import minimize
 import cvxpy as cvx
 import HPUtils
 
@@ -28,10 +29,10 @@ def univariateHLL(params, omega, seq, sign=1.0, verbose=False):
 	ll = (sign) * (-constant_survival - alpha*updating_survival + occurrence_likelihood)
 	return ll
 	
-def univariate (seq, omega):
+def univariate (seq, omega, verbose=False):
 	params = np.random.uniform (0,1,size=2)
 	bounds = [(0, None), (0, None)]
-	res = minimize(_univariateHLL, params, args=(omega, seq, -1.0, True), 
+	res = minimize(univariateHLL, params, args=(omega, seq, -1.0, verbose), 
 				   method="L-BFGS-B",
 				   bounds=bounds,
 				   options={"ftol": 1e-10, "maxls": 50, "maxcor":50, "maxiter":1000, "maxfun": 1000})
@@ -47,9 +48,11 @@ def calculateR (seq, dim, omega):
 		TODO: Use sparse matrices in R calculation. 
 	"""
 	# initialization
-	R = {i: np.zeros ((dim, len (seq) + 1)) for i in xrange (dim)}
-	for i in xrange (dim): # this loop is not really required?
-		R[i][:,0] = 0
+	#R = {i: np.zeros ((dim, len (seq) + 1)) for i in xrange (dim)}
+	R = {i: sp.lil_matrix((dim, len (seq) + 1)) for i in xrange (dim)}
+
+	#for i in xrange (dim): # this loop is not really required?
+		#R[i][:,0] = 0
 
 	lastseen = {i: (-np.inf, 0) for i in xrange (dim)}
 
@@ -86,11 +89,11 @@ def multivariateHLLSlow (params, omega, seq, dim, horizon, sign=1.0, verbose=Fal
 						if s == j: intensity += alpha[j,i] * HPUtils.kernel (curr, c, omega)
 				term1 += np.log (intensity + epsilon)
 
-	term2 += (mu[i] * horizon)
-
 		for event in seq:
 			src, curr = int (event[0]), event[1]
 			term3 += (alpha[src,i] * (1 - HPUtils.kernel (horizon, curr, omega)))
+	
+	term2 += (mu[i] * horizon)
     
 	ll = (sign) * (term1 - term2 - term3)
 	if verbose: print ll, term1, term2, term3
@@ -123,6 +126,13 @@ def multivariateHLLGradSlow (params, omega, seq, dim, horizon, R, sign=1.0, verb
 	return (sign) * np.concatenate ((gradmu, gradalpha.flatten()))
 
 def multivariateHLL (params, omega, seq, dim, horizon, R, sign=1.0, verbose=False):
+	""" computes the multivariate likelihood objective
+
+	Parameters:
+	-----------
+	R: dict
+		key is the node index and value is sparse.lil_matrix of dimension nodes * (events + 1)
+	"""
 	epsilon = 1e-50
 	mu = params[0:dim]
 	alpha = params[dim:].reshape (dim, dim)
@@ -137,6 +147,13 @@ def multivariateHLL (params, omega, seq, dim, horizon, R, sign=1.0, verbose=Fals
 	return ll
 
 def multivariateHLLGrad (params, omega, seq, dim, horizon, R, sign=1.0, verbose=False):
+	""" computes the gradient of the multivariate likelihood objective
+
+	Parameters:
+	-----------
+	R: dict
+		key is the node index and value is sparse.lil_matrix of dimension nodes * (events + 1)
+	"""
 	epsilon = 1e-50
 	mu = params[0:dim]
 	alpha = params[dim:].reshape (dim, dim)
@@ -147,17 +164,17 @@ def multivariateHLLGrad (params, omega, seq, dim, horizon, R, sign=1.0, verbose=
 		src, curr = int (event[0]), event[1]
 		intensity = mu[src] + sum([alpha[j,src] * R[src][j,i+1] for j in xrange (dim)]) + epsilon
 		gradmu[src] += (1./intensity)
-		gradalpha[:,src] += (R[src][:,i+1] / intensity)
+		gradalpha[:,src] += (R[src][:,i+1] / intensity).toarray().flatten()
 		gradalpha[src, :] -= (1 - HPUtils.kernel (horizon, curr, omega))
 	gradmu -= horizon
     
 	return (sign) * np.concatenate((gradmu, gradalpha.flatten()))
 
-def multivariate (seq, omega, dim, horizon):
+def multivariate (seq, omega, dim, horizon, verbose=False):
 	bounds = [(0,None) for i in xrange (dim + (dim**2))]
 	params = np.random.uniform (0, 1, size=dim + dim ** 2)
 	R = calculateR (seq, dim, omega)
-	res = minimize(multivariateHLL, params, args=(omega, seq, dim, horizon, R, -1.0, True), 
+	res = minimize(multivariateHLL, params, args=(omega, seq, dim, horizon, R, -1.0, verbose), 
 				   method="L-BFGS-B", 
 				   jac=multivariateHLLGrad, 
 				   bounds=bounds,
@@ -182,7 +199,7 @@ def parametricHLLGrad (params, omega, seq, dim, horizon, R, adj, sign=1.0, verbo
 	pars = np.concatenate ((mu, alpha.toarray().flatten()))
 	grad = multivariateHLLGrad (pars, omega, seq, dim, horizon, R, sign=sign, verbose=verbose)
 
-	alphagrad = grad[N:].reshape(dim, dim)
+	alphagrad = grad[dim:].reshape(dim, dim)
 	gradParams = np.zeros_like (params)
 	gradParams[0] = grad[0:dim].sum()
 	gradParams[1] = np.trace (alphagrad)
@@ -190,11 +207,11 @@ def parametricHLLGrad (params, omega, seq, dim, horizon, R, adj, sign=1.0, verbo
 
 	return gradParams
 
-def parametric (seq, omega, dim, adj, horizon):
+def parametric (seq, omega, dim, adj, horizon, verbose=False):
 	bounds = [(0,None) for i in xrange (3)]
 	R = calculateR (seq, dim, omega)
 	params = np.random.uniform(0,1,size=3)
-	res = minimize(parametricHLL, params, args=(omega, seq, dim, horizon, R, adj, -1.0, True), 
+	res = minimize(parametricHLL, params, args=(omega, seq, dim, horizon, R, adj, -1.0, verbose), 
 				   method="L-BFGS-B",
 				   jac=parametricHLLGrad,
 				   bounds=bounds,
