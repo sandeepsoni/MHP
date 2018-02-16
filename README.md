@@ -14,6 +14,10 @@ If you happen to use this code, consider citing our [paper]().
 ```
 If you discover any bug, please file an issue. For contributions, please make a pull request.
 
+# TODO
+- Add link to arXiv paper
+- Add Jupyter notebook demostrating how to use both the generation and estimation code
+
 # Other similar resources
 
 - [Scott Linderman](http://www.columbia.edu/~swl2133/) provides code for [bayesian inference on Hawkes processes](https://github.com/slinderman/pyhawkes).
