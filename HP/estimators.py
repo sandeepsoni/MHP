@@ -45,7 +45,16 @@ def calculateR (seq, dim, omega):
 		where R is allocated to contain dim * dim * nEvents entries (plus extra dim * dim
 		to make the recursive update possible). In reality though, it is very sparse.
 
-		TODO: Use sparse matrices in R calculation. 
+		Recursively, the equations are as follows:
+		R[i][j,t] is defined as the excitation at any given time.
+		i is the node that recieves the excitation
+		j is the node that has had past events
+		t is the time at which we calculate the excitation
+
+
+		R[i][j,t] = K(t-lasttime(i)) * R[i][j,lasttime(i)] ... i=j
+				  = K(t-lasttime(i)) * R[i][j,lasttime(i)] + \sum_{e:lasttime(i) < t_e < t} K(t-t_e) ... i!=j
+
 	"""
 	# initialization
 	#R = {i: np.zeros ((dim, len (seq) + 1)) for i in xrange (dim)}
@@ -71,6 +80,7 @@ def calculateR (seq, dim, omega):
 	return R
 
 def multivariateHLLSlow (params, omega, seq, dim, horizon, sign=1.0, verbose=False):
+	""" a naive implementation of the likelihood objective function """
 	epsilon = 1e-50
 	mu = params[0:dim]
 	alpha = params[dim:].reshape (dim, dim)
@@ -100,6 +110,7 @@ def multivariateHLLSlow (params, omega, seq, dim, horizon, sign=1.0, verbose=Fal
 	return ll
 
 def multivariateHLLGradSlow (params, omega, seq, dim, horizon, R, sign=1.0, verbose=False):
+	""" a naive implementation of the gradient """
 	epsilon = 1e-50
 	mu = params[0:dim]
 	alpha = params[dim:].reshape (dim, dim)
@@ -184,14 +195,15 @@ def multivariate (seq, omega, dim, horizon, verbose=False):
 	alpha = res.x[dim:].reshape (dim,dim)
 	return mu, alpha
 
-def parametricHLL (params, omega, seq, dim, horizon, R, adj, sign=1.0, verbose=False):
+def parametricHLLOld (params, omega, seq, dim, horizon, R, adj, sign=1.0, verbose=False):
 	mu = params[0] * np.ones(dim)
 	a,b = params[1], params[2]
 	alpha = (sp.lil_matrix (np.diag([a] * dim) + b * adj)).tocsr()
 	pars = np.concatenate ((mu, alpha.toarray().flatten()))
 	return multivariateHLL (pars, omega, seq, dim, horizon, R, sign=sign, verbose=verbose)
 
-def parametricHLLGrad (params, omega, seq, dim, horizon, R, adj, sign=1.0, verbose=False):
+def parametricHLLGradOld (params, omega, seq, dim, horizon, R, adj, sign=1.0, verbose=False):
+	""" isn't the right thing to do. does not calculate the social parameter's gradient correctly. """
 	mu = params[0] * np.ones(dim)
 	a,b = params[1], params[2]
 	alpha = (sp.lil_matrix (np.diag([a] * dim) + b * adj)).tocsr()
@@ -207,6 +219,54 @@ def parametricHLLGrad (params, omega, seq, dim, horizon, R, adj, sign=1.0, verbo
 
 	return gradParams
 
+def parametricHLL (params, omega, seq, dim, horizon, R, adj, sign=1.0, verbose=False):
+	""" computes the parametric multivariate likelihood objective
+
+	Parameters:
+	-----------
+	R: dict
+		key is the node index and value is sparse.lil_matrix of dimension nodes * (events + 1)
+	"""
+	mu, a, b = params[0], params[1], params[2]
+	epsilon = 1e-50
+	term1 = term3 = term4 = 0.0
+	term2 = mu * dim * horizon
+	for i, event in enumerate (seq):
+		src, curr = int (event[0]), event[1]
+		term1 += np.log (mu + a * R[src][src, i+1] + b * (R[src][:,i+1].multiply(adj[:,src]).sum()) + epsilon)
+		decay = (1 - HPUtils.kernel (horizon, curr, omega))
+		term3 += decay
+		term4 += adj[src,:] * decay
+	term4 = term4.sum()
+	ll = (sign) * (term1 - term2 - a*term3 - b*term4)
+	if verbose: print ll, term1, term2, term3
+	return ll
+	
+def parametricHLLGrad (params, omega, seq, dim, horizon, R, adj, sign=1.0, verbose=False):
+	""" computes the parametric multivariate gradient equations
+
+	Parameters:
+	-----------
+	R: dict
+		key is the node index and value is sparse.lil_matrix of dimension nodes * (events + 1)
+	""" 
+	mu, a, b = params[0], params[1], params[2]
+	epsilon = 1e-50
+
+	gradmu = grada = gradb = 0.0
+	for i, event in enumerate(seq):
+		src, curr = int (event[0]), event[1]
+		totalExcitationReceived = R[src][:,i+1].multiply(adj[:,src]).sum()
+		intensity = mu + a * R[src][src,i+1] + b * (totalExcitationReceived) + epsilon
+		gradmu += (1./intensity)
+		decay = 1 - HPUtils.kernel (horizon, curr, omega)
+		grada += ((R[src][src,i+1] / intensity ) - decay)
+		gradb += (totalExcitationReceived / intensity - (adj[src,:].sum() * decay))
+	
+	gradmu -= (dim * horizon)
+	if verbose: print gradmu, grada, gradb
+	return (sign) * np.array ([gradmu, grada, gradb])
+	
 def parametric (seq, omega, dim, adj, horizon, verbose=False):
 	bounds = [(0,None) for i in xrange (3)]
 	R = calculateR (seq, dim, omega)
@@ -218,3 +278,15 @@ def parametric (seq, omega, dim, adj, horizon, verbose=False):
 				   options={"ftol": 1e-10, "maxls": 50, "maxcor":50, "maxiter":1000, "maxfun": 1000})
 
 	return res.x[0], res.x[1], res.x[2]
+
+def customEstimator (init, seq, omega, dim, adj, horizon, objectiveFunction, gradientFunction, verbose=False):
+	bounds = [(0, 100) for i in xrange (len(init))]
+	if verbose: print "Calculating R ...",
+	R = calculateR (seq, dim, omega)
+	if verbose: print "done"
+	res = minimize (objectiveFunction, init, args=(omega, seq, dim, horizon, R, adj, -1.0, verbose),
+					method="L-BFGS-B",
+					jac=gradientFunction,
+					bounds=bounds,
+					options={"ftol": 1e-8, "maxls": 20, "maxcor": 20, "maxiter": 150, "maxfun": 800})
+	return res.x
