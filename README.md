@@ -8,14 +8,19 @@ It contains the following code components:
 The simulation code is copied and modified slightly from [Steve Morse's excellent implementation](https://github.com/stmorse/hawkes). 
 The code is optimized to get runtime improvements compared to naive implementations.
 
-If you happen to use this code, consider citing our [paper]().
+If you happen to use this code, consider citing our [paper](http://proceedings.mlr.press/v104/soni19a/soni19a.pdf).
 ```
-
+@inproceedings{soni2019detecting,
+  title={Detecting Social Influence in Event Cascades by Comparing Discriminative Rankers},
+  author={Soni, Sandeep and Ramirez, Shawn Ling and Eisenstein, Jacob Joseph},
+  booktitle={The 2019 ACM SIGKDD Workshop on Causal Discovery},
+  pages={78--99},
+  year={2019}
+}
 ```
 If you discover any bug, please file an issue. For contributions, please make a pull request.
 
 # TODO
-- Add link to arXiv paper
 - Add Jupyter notebook demostrating how to use both the generation and estimation code
 
 # Other similar resources
