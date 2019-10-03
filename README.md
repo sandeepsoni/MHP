@@ -8,11 +8,11 @@ It contains the following code components:
 The simulation code is copied and modified slightly from [Steve Morse's excellent implementation](https://github.com/stmorse/hawkes). 
 The code is optimized to get runtime improvements compared to naive implementations.
 
-If you happen to use this code, consider citing our [paper](http://proceedings.mlr.press/v104/soni19a/soni19a.pdf).
+If you happen to use this code, consider citing our [paper](http://proceedings.mlr.press/v104/soni19a/soni19a.pdf). Here's the [open-access version](https://arxiv.org/pdf/1802.06138.pdf)
 ```
 @inproceedings{soni2019detecting,
   title={Detecting Social Influence in Event Cascades by Comparing Discriminative Rankers},
-  author={Soni, Sandeep and Ramirez, Shawn Ling and Eisenstein, Jacob Joseph},
+  author={Soni, Sandeep and Ramirez, Shawn Ling and Eisenstein, Jacob},
   booktitle={The 2019 ACM SIGKDD Workshop on Causal Discovery},
   pages={78--99},
   year={2019}
